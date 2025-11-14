@@ -4,13 +4,14 @@
 -- To apply: Run this entire script in Supabase SQL Editor
 
 -- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Supabase uses gen_random_uuid() from pgcrypto, which is enabled by default
+-- No need for uuid-ossp extension
 
 -- ============================================================================
 -- USERS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -48,7 +49,7 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 -- TRIPS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS trips (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   currency TEXT NOT NULL DEFAULT 'USD',
   cover_image TEXT,
@@ -57,55 +58,13 @@ CREATE TABLE IF NOT EXISTS trips (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- RLS Policies for trips
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_select_policy'
-  ) THEN
-    CREATE POLICY trips_select_policy ON trips FOR SELECT
-      USING (
-        EXISTS (
-          SELECT 1 FROM trip_members
-          WHERE trip_members.trip_id = trips.id
-          AND trip_members.user_id = auth.uid()
-        )
-      );
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_insert_policy'
-  ) THEN
-    CREATE POLICY trips_insert_policy ON trips FOR INSERT
-      WITH CHECK (created_by = auth.uid() OR created_by IS NULL);
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_update_policy'
-  ) THEN
-    CREATE POLICY trips_update_policy ON trips FOR UPDATE
-      USING (
-        EXISTS (
-          SELECT 1 FROM trip_members
-          WHERE trip_members.trip_id = trips.id
-          AND trip_members.user_id = auth.uid()
-          AND trip_members.role = 'admin'
-        )
-      );
-  END IF;
-END $$;
-
--- Enable RLS on trips
-ALTER TABLE trips ENABLE ROW LEVEL SECURITY;
+-- RLS Policies for trips (will be added after trip_members table is created)
 
 -- ============================================================================
 -- TRIP MEMBERS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS trip_members (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -113,6 +72,8 @@ CREATE TABLE IF NOT EXISTS trip_members (
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(trip_id, user_id)
 );
+
+-- Now add trips RLS policies (after trip_members exists)
 
 -- RLS Policies for trip_members
 DO $$ BEGIN
@@ -160,10 +121,53 @@ END $$;
 ALTER TABLE trip_members ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
+-- TRIPS RLS POLICIES (added after trip_members table exists)
+-- ============================================================================
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_select_policy'
+  ) THEN
+    CREATE POLICY trips_select_policy ON trips FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM trip_members
+          WHERE trip_members.trip_id = trips.id
+          AND trip_members.user_id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_insert_policy'
+  ) THEN
+    CREATE POLICY trips_insert_policy ON trips FOR INSERT
+      WITH CHECK (created_by = auth.uid() OR created_by IS NULL);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'trips' AND policyname = 'trips_update_policy'
+  ) THEN
+    CREATE POLICY trips_update_policy ON trips FOR UPDATE
+      USING (
+        EXISTS (
+          SELECT 1 FROM trip_members
+          WHERE trip_members.trip_id = trips.id
+          AND trip_members.user_id = auth.uid()
+          AND trip_members.role = 'admin'
+        )
+      );
+  END IF;
+END $$;
+
+-- ============================================================================
 -- EXPENSES TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS expenses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   amount DECIMAL(10, 2) NOT NULL,
@@ -245,7 +249,7 @@ ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 -- EXPENSE SPLITS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS expense_splits (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   expense_id UUID NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   share_amount DECIMAL(10, 2) NOT NULL,
@@ -325,7 +329,7 @@ ALTER TABLE expense_splits ENABLE ROW LEVEL SECURITY;
 -- SETTLEMENTS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS settlements (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   from_user UUID NOT NULL REFERENCES users(id),
   to_user UUID NOT NULL REFERENCES users(id),
